@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -20,6 +21,19 @@ var flagsWithValues = map[string]bool{
 	"--env": true, "-env": true, "-e": true,
 	"--fields": true, "-fields": true, "-f": true,
 	"--sql": true, "-sql": true,
+}
+
+func parseTraceID(arg string) string {
+	if strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://") {
+		u, err := url.Parse(arg)
+		if err != nil {
+			return arg
+		}
+		if id := u.Query().Get("traceId"); id != "" {
+			return id
+		}
+	}
+	return arg
 }
 
 func reorderArgs(args []string) []string {
@@ -78,13 +92,14 @@ func main() {
 	flag.StringVar(&flagSQL, "sql", "", "Raw SQL query to execute against the Logfire API")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: lfsnag [options] <traceId>\n")
+		fmt.Fprintf(os.Stderr, "Usage: lfsnag [options] <traceId | logfire-url>\n")
 		fmt.Fprintf(os.Stderr, "       lfsnag [options] --sql \"<query>\"\n\n")
-		fmt.Fprintf(os.Stderr, "Fetch trace details from Pydantic Logfire by traceId or raw SQL.\n\n")
+		fmt.Fprintf(os.Stderr, "Fetch trace details from Pydantic Logfire by traceId, URL, or raw SQL.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  lfsnag 019d05ee9be731d9f95c339fb7b9c6c1\n")
+		fmt.Fprintf(os.Stderr, "  lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=019d05ee9be731d9f95c339fb7b9c6c1'\n")
 		fmt.Fprintf(os.Stderr, "  lfsnag -e prod 019d05ee9be731d9f95c339fb7b9c6c1\n")
 		fmt.Fprintf(os.Stderr, "  lfsnag -c 019d05ee9be731d9f95c339fb7b9c6c1\n")
 		fmt.Fprintf(os.Stderr, "  lfsnag -v --token mytoken 019d05ee9be731d9f95c339fb7b9c6c1\n")
@@ -108,9 +123,9 @@ func main() {
 
 	var traceID string
 	if flagSQL == "" {
-		traceID = flag.Arg(0)
+		traceID = parseTraceID(flag.Arg(0))
 		if !traceIDPattern.MatchString(traceID) {
-			fmt.Fprintf(os.Stderr, "error: invalid traceId %q (must be 32 hex characters)\n", traceID)
+			fmt.Fprintf(os.Stderr, "error: invalid traceId %q (must be 32 hex characters)\n", flag.Arg(0))
 			os.Exit(1)
 		}
 	}

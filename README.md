@@ -136,6 +136,14 @@ If `-e` is omitted, the `"default"` field is used. CLI flags and env vars still 
 lfsnag abc123def456789012345678abcdef01
 ```
 
+### From Logfire URL
+
+Paste a full Logfire URL — the `traceId` query parameter is extracted automatically:
+
+```bash
+lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=abc123def456789012345678abcdef01&spanId=...'
+```
+
 ### Compact Output
 
 ```bash
@@ -232,6 +240,10 @@ make coverage
 # Run tests with race detection
 make test-race
 ```
+
+## References
+
+- [Logfire Query API](https://logfire.pydantic.dev/docs/how-to-guides/query-api/)
 
 ## License
 
