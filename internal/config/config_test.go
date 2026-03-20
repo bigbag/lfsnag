@@ -198,6 +198,29 @@ func TestLoadEnvironmentWithTokenOverride(t *testing.T) {
 	}
 }
 
+func TestLoadEnvironmentWithBaseURL(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "custom",
+		"environments": {
+			"custom": {"token": "custom-token", "base_url": "https://custom.logfire.dev"}
+		}
+	}`)
+
+	cfg, err := Load("", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "custom-token" {
+		t.Errorf("expected custom-token, got %s", cfg.Token)
+	}
+	if cfg.BaseURL != "https://custom.logfire.dev" {
+		t.Errorf("expected custom base URL, got %s", cfg.BaseURL)
+	}
+}
+
 func TestLoadEnvironmentBaseURLDefault(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "")
 	t.Setenv("LOGFIRE_BASE_URL", "")

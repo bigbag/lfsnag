@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -188,5 +189,71 @@ func TestPrinterPrintRequestNotVerbose(t *testing.T) {
 	output := buf.String()
 	if output != "" {
 		t.Errorf("expected no output when not verbose, got %s", output)
+	}
+}
+
+func TestPrinterPrintResponseVerbose(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPrinter(&buf, &bytes.Buffer{}, false, true)
+
+	resp := &http.Response{
+		Status: "200 OK",
+		Header: http.Header{
+			"Content-Type": {"application/json"},
+		},
+	}
+
+	p.PrintResponse(resp)
+
+	output := buf.String()
+	if !strings.Contains(output, "200 OK") {
+		t.Errorf("expected status in output, got %s", output)
+	}
+	if !strings.Contains(output, "Content-Type") {
+		t.Errorf("expected header in output, got %s", output)
+	}
+}
+
+func TestPrinterPrintResponseNotVerbose(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPrinter(&buf, &bytes.Buffer{}, false, false)
+
+	resp := &http.Response{
+		Status: "200 OK",
+		Header: http.Header{},
+	}
+
+	p.PrintResponse(resp)
+
+	if buf.String() != "" {
+		t.Errorf("expected no output when not verbose, got %s", buf.String())
+	}
+}
+
+func TestPrinterPrintRequestVerboseNonJSONBody(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPrinter(&buf, &bytes.Buffer{}, false, true)
+
+	body := []byte("plain text body")
+	p.PrintRequest("POST", "http://localhost/api", nil, body)
+
+	output := buf.String()
+	if !strings.Contains(output, "plain text body") {
+		t.Errorf("expected raw body in output, got %s", output)
+	}
+}
+
+func TestPrinterPrintRequestVerboseNoBody(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPrinter(&buf, &bytes.Buffer{}, false, true)
+
+	p.PrintRequest("GET", "http://localhost/api", map[string]string{"Accept": "application/json"}, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "GET") {
+		t.Errorf("expected method in output, got %s", output)
+	}
+	if !strings.Contains(output, "Accept") {
+		t.Errorf("expected header in output, got %s", output)
 	}
 }

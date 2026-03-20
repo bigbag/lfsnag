@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/bigbag/lfsnag/internal/output"
@@ -111,6 +112,36 @@ func TestQueryRawSQLError(t *testing.T) {
 	_, err := c.Query("INVALID SQL")
 	if err == nil {
 		t.Fatal("expected error for 400 response")
+	}
+}
+
+func TestQueryTraceWithFields(t *testing.T) {
+	var gotSQL string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSQL = r.URL.Query().Get("sql")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[{"span_name":"test"}]`))
+	}))
+	defer server.Close()
+
+	printer := output.NewPrinter(&bytes.Buffer{}, &bytes.Buffer{}, false, false)
+	c := New("test-token", server.URL, printer)
+
+	_, err := c.QueryTrace("abcdef1234567890abcdef1234567890", "span_name,duration")
+	if err != nil {
+		t.Fatalf("QueryTrace failed: %v", err)
+	}
+
+	if gotSQL == "" {
+		t.Fatal("expected non-empty sql")
+	}
+	if !strings.Contains(gotSQL, "span_name,duration") {
+		t.Errorf("expected fields in SQL, got %s", gotSQL)
+	}
+	if strings.Contains(gotSQL, "SELECT *") {
+		t.Errorf("expected custom fields not *, got %s", gotSQL)
 	}
 }
 
