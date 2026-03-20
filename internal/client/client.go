@@ -1,11 +1,11 @@
 package client
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/bigbag/lfsnag/internal/logfire"
@@ -14,16 +14,14 @@ import (
 
 type Client struct {
 	token      string
-	project    string
 	baseURL    string
 	printer    *output.Printer
 	httpClient *http.Client
 }
 
-func New(token, project, baseURL string, printer *output.Printer) *Client {
+func New(token, baseURL string, printer *output.Printer) *Client {
 	return &Client{
 		token:   token,
-		project: project,
 		baseURL: baseURL,
 		printer: printer,
 		httpClient: &http.Client{
@@ -32,28 +30,21 @@ func New(token, project, baseURL string, printer *output.Printer) *Client {
 	}
 }
 
-func (c *Client) QueryTrace(traceID string) (json.RawMessage, error) {
-	sql := logfire.BuildTraceQuery(traceID)
-	url := logfire.Endpoint(c.baseURL, c.project)
+func (c *Client) Query(sql string) (json.RawMessage, error) {
+	endpoint := logfire.Endpoint(c.baseURL)
 
-	reqBody := logfire.QueryRequest{SQL: sql}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
+	reqURL := endpoint + "?" + url.Values{"sql": {sql}}.Encode()
 
 	headers := map[string]string{
 		"Authorization": "Bearer " + c.token,
-		"Content-Type":  "application/json",
 	}
-	c.printer.PrintRequest("POST", url, headers, body)
+	c.printer.PrintRequest("GET", reqURL, headers, nil)
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -73,4 +64,8 @@ func (c *Client) QueryTrace(traceID string) (json.RawMessage, error) {
 	}
 
 	return json.RawMessage(respBody), nil
+}
+
+func (c *Client) QueryTrace(traceID, fields string) (json.RawMessage, error) {
+	return c.Query(logfire.BuildTraceQuery(traceID, fields))
 }

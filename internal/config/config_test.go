@@ -1,14 +1,15 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestLoadFlagOverride(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "env-token")
-	t.Setenv("LOGFIRE_PROJECT", "env-project")
 
-	cfg, err := Load("flag-token", "flag-project")
+	cfg, err := Load("flag-token", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -16,14 +17,10 @@ func TestLoadFlagOverride(t *testing.T) {
 	if cfg.Token != "flag-token" {
 		t.Errorf("expected flag-token, got %s", cfg.Token)
 	}
-	if cfg.Project != "flag-project" {
-		t.Errorf("expected flag-project, got %s", cfg.Project)
-	}
 }
 
 func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "env-token")
-	t.Setenv("LOGFIRE_PROJECT", "env-project")
 	t.Setenv("LOGFIRE_BASE_URL", "https://custom.example.com")
 
 	cfg, err := Load("", "")
@@ -34,9 +31,6 @@ func TestLoadEnvOverride(t *testing.T) {
 	if cfg.Token != "env-token" {
 		t.Errorf("expected env-token, got %s", cfg.Token)
 	}
-	if cfg.Project != "env-project" {
-		t.Errorf("expected env-project, got %s", cfg.Project)
-	}
 	if cfg.BaseURL != "https://custom.example.com" {
 		t.Errorf("expected custom base URL, got %s", cfg.BaseURL)
 	}
@@ -44,7 +38,6 @@ func TestLoadEnvOverride(t *testing.T) {
 
 func TestLoadDefaultBaseURL(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "")
-	t.Setenv("LOGFIRE_PROJECT", "")
 	t.Setenv("LOGFIRE_BASE_URL", "")
 
 	cfg, err := Load("", "")
@@ -59,7 +52,6 @@ func TestLoadDefaultBaseURL(t *testing.T) {
 
 func TestLoadMissingFile(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "")
-	t.Setenv("LOGFIRE_PROJECT", "")
 	t.Setenv("LOGFIRE_BASE_URL", "")
 
 	cfg, err := Load("", "")
@@ -69,5 +61,159 @@ func TestLoadMissingFile(t *testing.T) {
 
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
+	}
+}
+
+func writeConfigFile(t *testing.T, content string) {
+	t.Helper()
+	dir := t.TempDir()
+	configDir = dir
+	t.Cleanup(func() { configDir = "" })
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadEnvironmentFromFlag(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"},
+			"stage": {"token": "stage-token"}
+		}
+	}`)
+
+	cfg, err := Load("", "stage")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "stage-token" {
+		t.Errorf("expected stage-token, got %s", cfg.Token)
+	}
+}
+
+func TestLoadEnvironmentFromDefault(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"},
+			"stage": {"token": "stage-token"}
+		}
+	}`)
+
+	cfg, err := Load("", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "prod-token" {
+		t.Errorf("expected prod-token, got %s", cfg.Token)
+	}
+}
+
+func TestLoadEnvironmentFlagOverridesDefault(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"},
+			"stage": {"token": "stage-token"}
+		}
+	}`)
+
+	cfg, err := Load("", "stage")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "stage-token" {
+		t.Errorf("expected stage-token, got %s", cfg.Token)
+	}
+}
+
+func TestLoadEnvironmentUnknown(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"},
+			"stage": {"token": "stage-token"}
+		}
+	}`)
+
+	_, err := Load("", "dev")
+	if err == nil {
+		t.Fatal("expected error for unknown environment")
+	}
+	if want := `unknown environment "dev", available: prod, stage`; err.Error() != want {
+		t.Errorf("expected %q, got %q", want, err.Error())
+	}
+}
+
+func TestLoadEnvironmentRequired(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"environments": {
+			"prod": {"token": "prod-token"},
+			"stage": {"token": "stage-token"}
+		}
+	}`)
+
+	_, err := Load("", "")
+	if err == nil {
+		t.Fatal("expected error when no environment selector")
+	}
+	if want := "environment is required, available: prod, stage"; err.Error() != want {
+		t.Errorf("expected %q, got %q", want, err.Error())
+	}
+}
+
+func TestLoadEnvironmentWithTokenOverride(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"}
+		}
+	}`)
+
+	cfg, err := Load("override-token", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "override-token" {
+		t.Errorf("expected override-token, got %s", cfg.Token)
+	}
+}
+
+func TestLoadEnvironmentBaseURLDefault(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "prod",
+		"environments": {
+			"prod": {"token": "prod-token"}
+		}
+	}`)
+
+	cfg, err := Load("", "")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.BaseURL != "https://logfire-us.pydantic.dev" {
+		t.Errorf("expected default base URL, got %s", cfg.BaseURL)
 	}
 }
