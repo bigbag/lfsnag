@@ -241,6 +241,34 @@ make coverage
 make test-race
 ```
 
+## Claude Code Plugin
+
+lfsnag includes a [Claude Code](https://claude.ai/code) plugin. Use `/lfsnag:trace` to investigate Logfire traces directly from Claude Code.
+
+### Install from GitHub
+
+```bash
+/plugin marketplace add bigbag/lfsnag
+/plugin install lfsnag@bigbag-lfsnag
+```
+
+### Install from local path
+
+```bash
+/plugin marketplace add /path/to/lfsnag
+/plugin install lfsnag@lfsnag
+```
+
+Then type `/lfsnag:trace` to start investigating a trace.
+
+### Local development
+
+```bash
+claude --plugin-dir .
+```
+
+Use `/reload-plugins` after making changes to the skill without restarting.
+
 ## References
 
 - [Logfire Query API](https://logfire.pydantic.dev/docs/how-to-guides/query-api/)

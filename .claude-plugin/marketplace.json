@@ -1,0 +1,16 @@
+{
+  "name": "lfsnag",
+  "owner": {
+    "name": "bigbag",
+    "url": "https://github.com/bigbag"
+  },
+  "plugins": [
+    {
+      "name": "lfsnag",
+      "source": {
+        "source": "github",
+        "repo": "bigbag/lfsnag"
+      }
+    }
+  ]
+}
