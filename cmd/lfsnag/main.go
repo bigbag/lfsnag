@@ -106,7 +106,6 @@ func checkMode(peek bool, sql, save, db string, nargs int) error {
 		return fmt.Errorf("--peek requires --db (a bare traceId already peeks)")
 	}
 	if sql != "" && nargs > 0 {
-
 		return fmt.Errorf("--sql and traceId are mutually exclusive")
 	}
 	if sql == "" && nargs < 1 {
@@ -177,15 +176,7 @@ func main() {
 	}
 
 	if flagSQL != "" {
-		cfg, err := config.Load(flagToken, flagEnv, "")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: loading config: %v\n", err)
-			os.Exit(1)
-		}
-		if cfg.Token == "" {
-			fmt.Fprintln(os.Stderr, "error: token is required (set LOGFIRE_READ_TOKEN, use --token, use --env, or add to ~/.config/lfsnag/config.json)")
-			os.Exit(1)
-		}
+		cfg := loadConfig(flagToken, flagEnv, "")
 		c := client.New(cfg.Token, cfg.BaseURL, printer)
 		result, err := c.Query(flagSQL)
 		if err != nil {
@@ -207,17 +198,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(flagToken, flagEnv, project)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: loading config: %v\n", err)
-		os.Exit(1)
-	}
-	if cfg.Token == "" {
-		fmt.Fprintln(os.Stderr, "error: token is required (set LOGFIRE_READ_TOKEN, use --token, use --env, or add to ~/.config/lfsnag/config.json)")
-		os.Exit(1)
-	}
+	cfg := loadConfig(flagToken, flagEnv, project)
 
 	dbPath := flagSave
+
 	if dbPath == "" {
 		base, err := os.UserCacheDir()
 		if err != nil {
@@ -242,7 +226,6 @@ func main() {
 		_, err := w.Write(rows)
 		return err
 	})
-
 	if err != nil {
 		w.Abort()
 		printer.PrintError(err)
@@ -256,6 +239,19 @@ func main() {
 	p, note := peekDB(printer, dbPath)
 	printer.PrintJSON(peekPayload(dbPath, p, note))
 
+}
+
+func loadConfig(token, env, project string) *config.Config {
+	cfg, err := config.Load(token, env, project)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: loading config: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.Token == "" {
+		fmt.Fprintln(os.Stderr, "error: token is required (set LOGFIRE_READ_TOKEN, use --token, use --env, or add to ~/.config/lfsnag/config.json)")
+		os.Exit(1)
+	}
+	return cfg
 }
 
 func peekDB(printer *output.Printer, dbPath string) (logfire.PeekResult, string) {

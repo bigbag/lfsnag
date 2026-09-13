@@ -18,10 +18,10 @@ lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=<traceId>'
 lfsnag -e stage <traceId>                      # -e overrides URL/auto selection
 lfsnag --save /tmp/t.sqlite -e stage <traceId> # custom path instead of cache dir
 
-# 2. API SQL (DataFusion) — cross-trace queries, no local file
+# 2. API SQL (DataFusion). Cross-trace queries. No local file.
 lfsnag -e stage --sql "SELECT span_name, count() cnt FROM records WHERE trace_id = '<traceId>' GROUP BY span_name ORDER BY cnt DESC"
 
-# 3. LOCAL SQL (SQLite) — search the saved file offline; no token, no rate limit
+# 3. LOCAL SQL (SQLite). Search the saved file offline. No token and no rate limit.
 lfsnag --db ~/.cache/lfsnag/<traceId>.sqlite --peek
 lfsnag --db ~/.cache/lfsnag/<traceId>.sqlite --sql "SELECT span_name FROM records WHERE is_exception = 1"
 ```
@@ -32,7 +32,7 @@ Rules the CLI enforces:
 - `--db` needs `--sql` or `--peek`. It rejects a traceId and `--save`.
 - `--sql` rejects `--peek`, `--save`, and a traceId.
 
-Cache: fetches write `<UserCacheDir>/lfsnag/<traceId>.sqlite` (XDG_CACHE_HOME respected; `--save F` overrides). Re-fetch replaces the file atomically. Clear with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"` when no lfsnag fetch/query is running — deleting a DB mid-fetch silently loses that fetch.
+Cache: fetches write `<UserCacheDir>/lfsnag/<traceId>.sqlite`. The path follows XDG_CACHE_HOME. The flag `--save F` sets a different path. A re-fetch replaces the file atomically. Clear the cache with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"`. Do this when no lfsnag process runs. A delete during a fetch loses the data of that fetch.
 
 ## Reading the peek
 
@@ -41,16 +41,15 @@ Cache: fetches write `<UserCacheDir>/lfsnag/<traceId>.sqlite` (XDG_CACHE_HOME re
  "roots": […], "exceptions": […], "slow": […], "top": […]}
 ```
 
-- `n_*` are **exact totals**; arrays are capped samples (20).
-- `exceptions[].message` truncated to 200 chars; get the full text from `--db --sql`.
-- `path` on exceptions/slow = ancestry `root › … › span` (capped at 8 hops) — read the hot chain directly.
-- `top` = most frequent `span_name` with `max_dur`.
-- Slim `-f` fetches lack peek columns: output is `{"db","n","note"}` only — no `n_*` keys means unknown, not zero. Fetch without `-f` for a full peek.
+- `n_*` are **exact totals**. The arrays hold at most 20 samples.
+- The peek limits each `exceptions[].message` to 200 characters. Read the full text with `--db --sql`.
+- `path` on exceptions/slow is the ancestry `root › … › span`. The path holds at most 8 hops.
+- `top` lists the most frequent `span_name` with `max_dur`.
+- Slim `-f` fetches lack peek columns. The output then holds `{"db","n","note"}` only. An absent `n_*` key means unknown. Fetch without `-f` for a full peek.
 
 ## SQL tips
 
-**API `--sql`** runs DataFusion (postgres-ish): `attributes->>'key'`. Prefer `span_name` over `message`. API `limit` is 10000; SQL `LIMIT` alone does not lift the cap.
-
+**API `--sql`** runs DataFusion (postgres-ish): `attributes->>'key'`. Prefer `span_name` over `message`. The API `limit` is 10000. A SQL `LIMIT` alone does not lift this cap.
 ```sql
 SELECT count(*) n FROM records WHERE trace_id = '<traceId>'
 SELECT span_name, count() cnt, max(duration) max_dur FROM records WHERE trace_id = '<traceId>' GROUP BY span_name ORDER BY cnt DESC
@@ -59,7 +58,7 @@ SELECT ... WHERE level >= 'error'          -- errors without exception
 SELECT ... WHERE parent_span_id IS NULL    -- roots
 ```
 
-**Local `--db --sql`** runs SQLite. JSON via `json_extract`; Logfire keys contain dots, so quote the path. Bools are `0/1`.
+**Local `--db --sql`** runs SQLite. Read JSON with `json_extract`. Logfire keys contain dots. Quote the path for this reason. Bools are `0/1`.
 
 ```sql
 SELECT count(*) n FROM records
@@ -75,7 +74,7 @@ SELECT span_name, message, attributes FROM records WHERE span_id = '<spanId>'
 
 ## Available fields
 
-- `start_timestamp` - When the span/log was created (UTC)
+- `start_timestamp` - The time when the span/log started (UTC)
 - `end_timestamp` - When the span/log completed (UTC)
 - `duration` - Elapsed time in seconds (NULL for logs)
 - `trace_id` - Trace identifier (32 hex chars)
@@ -85,7 +84,7 @@ SELECT span_name, message, attributes FROM records WHERE span_id = '<spanId>'
 - `span_name` - Short name shared by similar records
 - `message` - Human-readable description
 - `level` - Severity level
-- `is_exception` - Whether an exception was recorded
+- `is_exception` - Whether the span holds an exception
 - `exception_type` - Exception class name
 - `exception_message` - Exception message
 - `exception_stacktrace` - Formatted traceback
@@ -118,12 +117,12 @@ SELECT span_name, message, attributes FROM records WHERE span_id = '<spanId>'
 
 ## CLI flags
 
-- `<traceId | URL>` - Fetch: stream to SQLite (cache path or `--save`), print peek with `db`
-- `--db FILE` - Query local SQLite (`--sql` or `--peek`; no token)
+- `<traceId | URL>` - Fetch the trace into SQLite. The path is the cache dir or `--save`. The output is a peek with `db`.
+- `--db FILE` - Query local SQLite with `--sql` or `--peek`. Local queries need no token.
 - `--sql` - Raw SQL (API without `--db`, local with `--db`)
 - `--save FILE` - Override the SQLite path for a fetch
 - `-f, --fields` - Columns to save (default all)
-- `-e, --env` - Profile (auto-picked from URL org/project; `-e` wins)
+- `-e, --env` - Profile. The URL org/project sets it automatically. The flag `-e` wins.
 - `-c, --compact` - One-line JSON
 - `-v, --verbose` - HTTP debug
 - `--token` - Override read token

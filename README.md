@@ -10,10 +10,10 @@ A CLI tool to investigate [Pydantic Logfire](https://logfire.pydantic.dev/) trac
 ## Features
 
 - **Save + peek** - A traceId/URL fetch streams all records into SQLite, then prints a compact summary (roots, top spans, exceptions with ancestry paths, slow spans)
-- **Local SQL** - Query saved traces offline with SQLite syntax; no token, no rate limits
+- **Local SQL** - Query saved traces offline with SQLite syntax. Local queries need no token and have no rate limit.
 - **API SQL** - Run DataFusion SQL directly against Logfire
 - **URL env auto-select** - A Logfire URL's org/project picks the matching environment profile
-- **Compact/verbose modes** - Machine-friendly JSON; HTTP request/response debugging
+- **Compact/verbose modes** - Machine-friendly JSON. Show HTTP request/response details.
 - **Flexible config** - CLI flags, environment variables, or config file
 
 ## Quick Start
@@ -48,7 +48,7 @@ make install
 - `-f, --fields` - Columns to save on fetch (default: all)
 - `--save FILE` - SQLite path for a fetch (default: `~/.cache/lfsnag/<traceId>.sqlite`)
 - `--db FILE` - Query a local SQLite file (`--sql` or `--peek`)
-- `--peek` - Peek summary (only with `--db`; a bare traceId already peeks)
+- `--peek` - Peek summary. Works only with `--db`. A bare traceId already peeks.
 - `--sql` - Raw SQL query (Logfire API, or `--db` local file)
 - `--token` - Override read token
 
@@ -60,7 +60,7 @@ Mode rules:
 
 ## Available Fields
 
-- `start_timestamp` - When the span/log was created (UTC)
+- `start_timestamp` - The time when the span/log started (UTC)
 - `end_timestamp` - When the span/log completed (UTC)
 - `duration` - Elapsed time in seconds (NULL for logs)
 - `trace_id` - Trace identifier (32 hex chars)
@@ -70,7 +70,7 @@ Mode rules:
 - `span_name` - Short name shared by similar records
 - `message` - Human-readable description
 - `level` - Severity level
-- `is_exception` - Whether an exception was recorded
+- `is_exception` - Whether the span holds an exception
 - `exception_type` - Exception class name
 - `exception_message` - Exception message
 - `exception_stacktrace` - Formatted traceback
@@ -103,7 +103,7 @@ Mode rules:
 
 ## Configuration
 
-Configuration is resolved in priority order: **CLI flags > environment variables > config file**.
+lfsnag resolves configuration in this priority order: **CLI flags > environment variables > config file**.
 
 ### Environment Profiles
 
@@ -133,7 +133,7 @@ Select an environment with `-e`:
 lfsnag -e prod abc123def456789012345678abcdef01
 ```
 
-If `-e` is omitted and the argument is a Logfire URL, the URL's `org/project` path selects the profile whose `project` field matches. Otherwise the `"default"` field is used. CLI flags and env vars still override profile values.
+Without `-e`, a Logfire URL argument selects the profile whose `project` field matches. Otherwise lfsnag uses the `"default"` field. CLI flags and env vars still override profile values.
 
 
 ### Environment Variables
@@ -152,13 +152,13 @@ lfsnag abc123def456789012345678abcdef01
 lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=abc123def456789012345678abcdef01&spanId=...'
 ```
 
-The URL's `org/project` auto-selects the matching environment profile; `-e` overrides. Default file: `~/.cache/lfsnag/<traceId>.sqlite` (`--save` overrides):
+The URL's `org/project` auto-selects the matching environment profile. The flag `-e` overrides this. Default file: `~/.cache/lfsnag/<traceId>.sqlite`. The flag `--save` sets a different path:
 
 ```bash
 lfsnag --save /tmp/t.sqlite -e stage abc123def456789012345678abcdef01
 ```
 
-Cached files are derived data — clear with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"` when no lfsnag fetch/query is running.
+Cached files are derived data. Clear them with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"` when no lfsnag fetch/query is running.
 
 ### Query locally (offline, no token)
 
@@ -168,7 +168,7 @@ lfsnag --db /tmp/t.sqlite --sql "SELECT span_name, count(*) cnt FROM records GRO
 lfsnag --db /tmp/t.sqlite --sql "SELECT span_name FROM records WHERE is_exception = 1"
 ```
 
-Logfire attribute keys contain dots — quote the JSON path in SQLite:
+Logfire attribute keys contain dots. Quote the JSON path in SQLite:
 
 ```bash
 lfsnag --db /tmp/t.sqlite --sql "SELECT sum(json_extract(attributes, '\$.\"gen_ai.aggregated_usage.input_tokens\"')) FROM records"
