@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/bigbag/lfsnag/internal/logfire"
@@ -33,8 +34,7 @@ func New(token, baseURL string, printer *output.Printer) *Client {
 func (c *Client) Query(sql string) (json.RawMessage, error) {
 	endpoint := logfire.Endpoint(c.baseURL)
 
-	reqURL := endpoint + "?" + url.Values{"sql": {sql}}.Encode()
-
+	reqURL := endpoint + "?" + url.Values{"sql": {sql}, "limit": {strconv.Itoa(logfire.DefaultLimit)}}.Encode()
 	headers := map[string]string{
 		"Authorization": "Bearer " + c.token,
 	}

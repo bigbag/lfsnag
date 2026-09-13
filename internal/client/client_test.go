@@ -54,6 +54,25 @@ func TestQueryTraceRequest(t *testing.T) {
 	}
 }
 
+func TestQuerySendsAPILimit(t *testing.T) {
+	var gotLimit string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLimit = r.URL.Query().Get("limit")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	printer := output.NewPrinter(&bytes.Buffer{}, &bytes.Buffer{}, false, false)
+	c := New("test-token", server.URL, printer)
+	if _, err := c.Query("SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotLimit != "10000" {
+		t.Fatalf("limit=%q", gotLimit)
+	}
+}
+
 func TestQueryTraceErrorStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

@@ -5,14 +5,15 @@
 [![Release](https://img.shields.io/github/v/release/bigbag/lfsnag)](https://github.com/bigbag/lfsnag/releases/latest)
 [![license](https://img.shields.io/github/license/bigbag/lfsnag.svg)](https://github.com/bigbag/lfsnag/blob/master/LICENSE)
 
-A CLI tool to fetch full trace details from [Pydantic Logfire](https://logfire.pydantic.dev/) by traceId.
+A CLI tool to investigate [Pydantic Logfire](https://logfire.pydantic.dev/) traces. One command streams a trace into local SQLite and prints a peek summary. Search the saved data offline with SQL.
 
 ## Features
 
-- **Single-purpose** - Query traces by traceId, nothing more
-- **Pretty output** - Formatted JSON by default
-- **Compact mode** - Machine-friendly JSON for scripting
-- **Verbose mode** - Show HTTP request/response details
+- **Save + peek** - A traceId/URL fetch streams all records into SQLite, then prints a compact summary (roots, top spans, exceptions with ancestry paths, slow spans)
+- **Local SQL** - Query saved traces offline with SQLite syntax; no token, no rate limits
+- **API SQL** - Run DataFusion SQL directly against Logfire
+- **URL env auto-select** - A Logfire URL's org/project picks the matching environment profile
+- **Compact/verbose modes** - Machine-friendly JSON; HTTP request/response debugging
 - **Flexible config** - CLI flags, environment variables, or config file
 
 ## Quick Start
@@ -21,7 +22,7 @@ A CLI tool to fetch full trace details from [Pydantic Logfire](https://logfire.p
 # Build
 make build
 
-# Query a trace
+# Fetch a trace: streams to ~/.cache/lfsnag/<traceId>.sqlite, prints a peek summary
 ./bin/lfsnag <traceId>
 ```
 
@@ -43,10 +44,19 @@ make install
 
 - `-c, --compact` - Compact JSON output
 - `-v, --verbose` - Show HTTP request/response details
-- `-e, --env` - Environment profile name
-- `-f, --fields` - Comma-separated list of fields to select (default: all)
-- `--sql` - Raw SQL query to execute against the Logfire API
+- `-e, --env` - Environment profile (auto-picked from a Logfire URL's org/project)
+- `-f, --fields` - Columns to save on fetch (default: all)
+- `--save FILE` - SQLite path for a fetch (default: `~/.cache/lfsnag/<traceId>.sqlite`)
+- `--db FILE` - Query a local SQLite file (`--sql` or `--peek`)
+- `--peek` - Peek summary (only with `--db`; a bare traceId already peeks)
+- `--sql` - Raw SQL query (Logfire API, or `--db` local file)
 - `--token` - Override read token
+
+Mode rules:
+
+- `--db` needs `--sql` or `--peek`. It rejects a traceId and `--save`.
+- `--sql` rejects `--peek`, `--save`, and a traceId.
+- A bare traceId always saves and peeks.
 
 ## Available Fields
 
@@ -105,11 +115,13 @@ Path: `~/.config/lfsnag/config.json`
   "environments": {
     "prod": {
       "token": "prod-read-token",
-      "base_url": "https://logfire-us.pydantic.dev"
+      "base_url": "https://logfire-us.pydantic.dev",
+      "project": "my-org/prod-mra"
     },
     "stage": {
       "token": "stage-read-token",
-      "base_url": "https://logfire-eu.pydantic.dev"
+      "base_url": "https://logfire-eu.pydantic.dev",
+      "project": "my-org/stage-mra"
     }
   }
 }
@@ -121,7 +133,8 @@ Select an environment with `-e`:
 lfsnag -e prod abc123def456789012345678abcdef01
 ```
 
-If `-e` is omitted, the `"default"` field is used. CLI flags and env vars still override profile values.
+If `-e` is omitted and the argument is a Logfire URL, the URL's `org/project` path selects the profile whose `project` field matches. Otherwise the `"default"` field is used. CLI flags and env vars still override profile values.
+
 
 ### Environment Variables
 
@@ -130,24 +143,49 @@ If `-e` is omitted, the `"default"` field is used. CLI flags and env vars still 
 
 ## Examples
 
-### Basic Query
+### Fetch a trace (save + peek)
+
+A traceId or URL fetch streams all records into SQLite, then prints a small peek summary including the `db` path:
 
 ```bash
 lfsnag abc123def456789012345678abcdef01
-```
-
-### From Logfire URL
-
-Paste a full Logfire URL — the `traceId` query parameter is extracted automatically:
-
-```bash
 lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=abc123def456789012345678abcdef01&spanId=...'
 ```
 
-### Compact Output
+The URL's `org/project` auto-selects the matching environment profile; `-e` overrides. Default file: `~/.cache/lfsnag/<traceId>.sqlite` (`--save` overrides):
 
 ```bash
-lfsnag -c abc123def456789012345678abcdef01
+lfsnag --save /tmp/t.sqlite -e stage abc123def456789012345678abcdef01
+```
+
+Cached files are derived data — clear with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"` when no lfsnag fetch/query is running.
+
+### Query locally (offline, no token)
+
+```bash
+lfsnag --db /tmp/t.sqlite --peek
+lfsnag --db /tmp/t.sqlite --sql "SELECT span_name, count(*) cnt FROM records GROUP BY span_name ORDER BY cnt DESC"
+lfsnag --db /tmp/t.sqlite --sql "SELECT span_name FROM records WHERE is_exception = 1"
+```
+
+Logfire attribute keys contain dots — quote the JSON path in SQLite:
+
+```bash
+lfsnag --db /tmp/t.sqlite --sql "SELECT sum(json_extract(attributes, '\$.\"gen_ai.aggregated_usage.input_tokens\"')) FROM records"
+```
+
+### Raw SQL against the API
+
+```bash
+lfsnag -e dev --sql "SELECT span_name, count(*) as cnt FROM records GROUP BY span_name ORDER BY cnt DESC LIMIT 10"
+lfsnag -e dev --sql "SELECT span_name, duration FROM records WHERE trace_id = '019d05ee9be731d9f95c339fb7b9c6c1' AND is_exception = true"
+```
+
+### Piping with jq
+
+```bash
+lfsnag -c abc123def456789012345678abcdef01 | jq '.exceptions'
+lfsnag -c --db /tmp/t.sqlite --sql "SELECT span_name FROM records WHERE is_exception = 1" | jq '.[].span_name'
 ```
 
 ### Verbose Mode
@@ -156,55 +194,6 @@ lfsnag -c abc123def456789012345678abcdef01
 lfsnag -v abc123def456789012345678abcdef01
 ```
 
-### Select Specific Fields
-
-```bash
-lfsnag -f span_name,start_timestamp,duration abc123def456789012345678abcdef01
-```
-
-### With Token Flag
-
-```bash
-lfsnag --token "your-token" abc123def456789012345678abcdef01
-```
-
-### Raw SQL Query
-
-```bash
-lfsnag -e dev --sql "SELECT span_name, duration FROM records WHERE is_exception = true"
-```
-
-Filter by trace with custom fields:
-```bash
-lfsnag -e dev --sql "SELECT span_name, duration FROM records WHERE trace_id = '019d05ee9be731d9f95c339fb7b9c6c1' AND is_exception = true"
-```
-
-Aggregate spans:
-```bash
-lfsnag -e dev --sql "SELECT span_name, count(*) as cnt FROM records GROUP BY span_name ORDER BY cnt DESC LIMIT 10"
-```
-
-### Piping with jq
-
-Extract span names:
-```bash
-lfsnag -c abc123def456789012345678abcdef01 | jq '.[].span_name'
-```
-
-Count spans in a trace:
-```bash
-lfsnag -c abc123def456789012345678abcdef01 | jq 'length'
-```
-
-Filter spans by attribute:
-```bash
-lfsnag -c abc123def456789012345678abcdef01 | jq '[.[] | select(.is_exception == true)]'
-```
-
-Save trace to file:
-```bash
-lfsnag abc123def456789012345678abcdef01 > trace.json
-```
 
 ## Make Commands
 

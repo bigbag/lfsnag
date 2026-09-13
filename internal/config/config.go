@@ -21,9 +21,10 @@ type fileConfig struct {
 type Config struct {
 	Token   string `json:"token"`
 	BaseURL string `json:"base_url"`
+	Project string `json:"project"`
 }
 
-func Load(flagToken, flagEnv string) (*Config, error) {
+func Load(flagToken, flagEnv, urlProject string) (*Config, error) {
 	cfg := &Config{BaseURL: defaultBaseURL}
 
 	fc, err := loadFile()
@@ -33,6 +34,12 @@ func Load(flagToken, flagEnv string) (*Config, error) {
 
 	if fc != nil {
 		envName := flagEnv
+		if envName == "" && urlProject != "" {
+			envName, err = envByProject(fc.Environments, urlProject)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if envName == "" {
 			envName = fc.Default
 		}
@@ -49,6 +56,7 @@ func Load(flagToken, flagEnv string) (*Config, error) {
 		if profile.BaseURL != "" {
 			cfg.BaseURL = profile.BaseURL
 		}
+		cfg.Project = profile.Project
 	}
 
 	if v := os.Getenv("LOGFIRE_READ_TOKEN"); v != "" {
@@ -63,6 +71,20 @@ func Load(flagToken, flagEnv string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func envByProject(envs map[string]Config, project string) (string, error) {
+	match := ""
+	for name, cfg := range envs {
+		if cfg.Project != project {
+			continue
+		}
+		if match != "" {
+			return "", fmt.Errorf("ambiguous project %q: profiles %q and %q both match", project, match, name)
+		}
+		match = name
+	}
+	return match, nil
 }
 
 func configFilePath() (string, error) {

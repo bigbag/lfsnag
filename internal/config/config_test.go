@@ -3,13 +3,14 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestLoadFlagOverride(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "env-token")
 
-	cfg, err := Load("flag-token", "")
+	cfg, err := Load("flag-token", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -23,7 +24,7 @@ func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "env-token")
 	t.Setenv("LOGFIRE_BASE_URL", "https://custom.example.com")
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestLoadDefaultBaseURL(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "")
 	t.Setenv("LOGFIRE_BASE_URL", "")
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestLoadMissingFile(t *testing.T) {
 	t.Setenv("LOGFIRE_READ_TOKEN", "")
 	t.Setenv("LOGFIRE_BASE_URL", "")
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load should not fail on missing config file: %v", err)
 	}
@@ -86,12 +87,61 @@ func TestLoadEnvironmentFromFlag(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("", "stage")
+	cfg, err := Load("", "stage", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
 	if cfg.Token != "stage-token" {
 		t.Errorf("expected stage-token, got %s", cfg.Token)
+	}
+}
+
+func TestLoadEnvByProjectFromURL(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "dev",
+		"environments": {
+			"dev": {"token": "dev-token", "project": "jasper-calloway/dev-mra"},
+			"stage": {"token": "stage-token", "project": "jasper-calloway/stage-mra"}
+		}
+	}`)
+
+	cfg, err := Load("", "", "jasper-calloway/stage-mra")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Token != "stage-token" {
+		t.Errorf("expected stage-token, got %s", cfg.Token)
+	}
+
+	cfg, err = Load("", "dev", "jasper-calloway/stage-mra")
+	if err != nil || cfg.Token != "dev-token" {
+		t.Errorf("flag env should win: %v %s", err, cfg.Token)
+	}
+
+	cfg, err = Load("", "", "someone/else")
+	if err != nil || cfg.Token != "dev-token" {
+		t.Errorf("unknown project should fall back to default: %v %s", err, cfg.Token)
+	}
+}
+
+func TestLoadRejectsAmbiguousProject(t *testing.T) {
+	t.Setenv("LOGFIRE_READ_TOKEN", "")
+	t.Setenv("LOGFIRE_BASE_URL", "")
+
+	writeConfigFile(t, `{
+		"default": "dev",
+		"environments": {
+			"dev": {"token": "dev-token", "project": "org/proj"},
+			"stage": {"token": "stage-token", "project": "org/proj"}
+		}
+	}`)
+
+	_, err := Load("", "", "org/proj")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -107,7 +157,7 @@ func TestLoadEnvironmentFromDefault(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -128,7 +178,7 @@ func TestLoadEnvironmentFlagOverridesDefault(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("", "stage")
+	cfg, err := Load("", "stage", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -149,7 +199,7 @@ func TestLoadEnvironmentUnknown(t *testing.T) {
 		}
 	}`)
 
-	_, err := Load("", "dev")
+	_, err := Load("", "dev", "")
 	if err == nil {
 		t.Fatal("expected error for unknown environment")
 	}
@@ -169,7 +219,7 @@ func TestLoadEnvironmentRequired(t *testing.T) {
 		}
 	}`)
 
-	_, err := Load("", "")
+	_, err := Load("", "", "")
 	if err == nil {
 		t.Fatal("expected error when no environment selector")
 	}
@@ -189,7 +239,7 @@ func TestLoadEnvironmentWithTokenOverride(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("override-token", "")
+	cfg, err := Load("override-token", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -209,7 +259,7 @@ func TestLoadEnvironmentWithBaseURL(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -232,7 +282,7 @@ func TestLoadEnvironmentBaseURLDefault(t *testing.T) {
 		}
 	}`)
 
-	cfg, err := Load("", "")
+	cfg, err := Load("", "", "")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}

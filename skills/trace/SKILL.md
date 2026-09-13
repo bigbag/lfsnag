@@ -1,68 +1,77 @@
 ---
 name: trace
-description: Investigate Pydantic Logfire traces - fetch by traceId or URL, run SQL queries, filter fields, and debug production issues
+description: Investigate Pydantic Logfire traces - one-command save plus peek, local SQLite search, API SQL, and debug production issues
 user_invocable: true
 ---
 
 # lfsnag: Logfire Trace Investigation
 
-You are investigating a Pydantic Logfire trace using the `lfsnag` CLI tool.
+Use `lfsnag` (`./bin/lfsnag` or PATH). Token: `~/.config/lfsnag/config.json`, `LOGFIRE_READ_TOKEN`, or `--token`.
 
-## Prerequisites
-
-- `lfsnag` must be installed and on PATH (or available at `./bin/lfsnag`)
-- A Logfire read token must be configured via `~/.config/lfsnag/config.json`, `LOGFIRE_READ_TOKEN` env var, or `--token` flag
-
-## How to use
-
-### Fetch a trace by ID
+## The three commands
 
 ```bash
-lfsnag <traceId>
+# 1. SAVE + PEEK: pass a traceId or a full Logfire URL.
+#    Streams all records into SQLite (RAM-bounded), then prints a small summary
+#    that includes the "db" path for step 3. URL org/project auto-picks the env profile.
+lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=<traceId>'
+lfsnag -e stage <traceId>                      # -e overrides URL/auto selection
+lfsnag --save /tmp/t.sqlite -e stage <traceId> # custom path instead of cache dir
+
+# 2. API SQL (DataFusion) — cross-trace queries, no local file
+lfsnag -e stage --sql "SELECT span_name, count() cnt FROM records WHERE trace_id = '<traceId>' GROUP BY span_name ORDER BY cnt DESC"
+
+# 3. LOCAL SQL (SQLite) — search the saved file offline; no token, no rate limit
+lfsnag --db ~/.cache/lfsnag/<traceId>.sqlite --peek
+lfsnag --db ~/.cache/lfsnag/<traceId>.sqlite --sql "SELECT span_name FROM records WHERE is_exception = 1"
 ```
 
-traceId is a 32-character hex string (e.g., `019d05d5c291ce65f49caad9bf2ebbdc`).
+Rules the CLI enforces:
 
-### Fetch a trace from a Logfire URL
+- `--peek` works only with `--db`. A bare traceId already peeks.
+- `--db` needs `--sql` or `--peek`. It rejects a traceId and `--save`.
+- `--sql` rejects `--peek`, `--save`, and a traceId.
 
-Paste the full URL directly — the traceId is extracted automatically:
+Cache: fetches write `<UserCacheDir>/lfsnag/<traceId>.sqlite` (XDG_CACHE_HOME respected; `--save F` overrides). Re-fetch replaces the file atomically. Clear with `rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/lfsnag"` when no lfsnag fetch/query is running — deleting a DB mid-fetch silently loses that fetch.
 
-```bash
-lfsnag 'https://logfire-us.pydantic.dev/org/proj?traceId=019d05d5c291ce65f49caad9bf2ebbdc&spanId=...'
+## Reading the peek
+
+```json
+{"db": "…", "n": 107, "n_roots": 1, "n_exceptions": 4, "n_slow": 19,
+ "roots": […], "exceptions": […], "slow": […], "top": […]}
 ```
 
-### Select specific fields
+- `n_*` are **exact totals**; arrays are capped samples (20).
+- `exceptions[].message` truncated to 200 chars; get the full text from `--db --sql`.
+- `path` on exceptions/slow = ancestry `root › … › span` (capped at 8 hops) — read the hot chain directly.
+- `top` = most frequent `span_name` with `max_dur`.
+- Slim `-f` fetches lack peek columns: output is `{"db","n","note"}` only — no `n_*` keys means unknown, not zero. Fetch without `-f` for a full peek.
 
-Use `-f` to return only the fields you need:
+## SQL tips
 
-```bash
-lfsnag -f span_name,duration,is_exception <traceId>
+**API `--sql`** runs DataFusion (postgres-ish): `attributes->>'key'`. Prefer `span_name` over `message`. API `limit` is 10000; SQL `LIMIT` alone does not lift the cap.
+
+```sql
+SELECT count(*) n FROM records WHERE trace_id = '<traceId>'
+SELECT span_name, count() cnt, max(duration) max_dur FROM records WHERE trace_id = '<traceId>' GROUP BY span_name ORDER BY cnt DESC
+SELECT span_name, exception_type, exception_message FROM records WHERE trace_id = '<traceId>' AND is_exception
+SELECT ... WHERE level >= 'error'          -- errors without exception
+SELECT ... WHERE parent_span_id IS NULL    -- roots
 ```
 
-### Compact output for piping
+**Local `--db --sql`** runs SQLite. JSON via `json_extract`; Logfire keys contain dots, so quote the path. Bools are `0/1`.
 
-Use `-c` for single-line JSON suitable for piping to `jq`:
-
-```bash
-lfsnag -c <traceId> | jq '[.[] | select(.is_exception == true)]'
+```sql
+SELECT count(*) n FROM records
+SELECT span_name, exception_type, exception_message FROM records WHERE is_exception = 1
+SELECT span_name, duration FROM records WHERE duration > 2 ORDER BY duration DESC
+SELECT span_name FROM records WHERE attributes LIKE '%gen_ai%'   -- cheap key probe
+SELECT span_name, json_extract(attributes, '$."gen_ai.request.model"') model FROM records WHERE json_extract(attributes, '$."gen_ai.request.model"') IS NOT NULL
+SELECT sum(json_extract(attributes, '$."gen_ai.aggregated_usage.input_tokens"')) FROM records
+SELECT span_name, message, attributes FROM records WHERE span_id = '<spanId>'
 ```
 
-### Use an environment profile
-
-```bash
-lfsnag -e prod <traceId>
-lfsnag -e stage <traceId>
-```
-
-Profiles are defined in `~/.config/lfsnag/config.json`.
-
-### Raw SQL queries
-
-Use `--sql` to query the Logfire `records` table directly:
-
-```bash
-lfsnag --sql "SELECT span_name, duration FROM records WHERE trace_id = '<traceId>' AND is_exception = true"
-```
+`jq`: `lfsnag -c --db F --peek | jq '.exceptions'`
 
 ## Available fields
 
@@ -107,61 +116,14 @@ lfsnag --sql "SELECT span_name, duration FROM records WHERE trace_id = '<traceId
 - `telemetry_sdk_language` - SDK language
 - `telemetry_sdk_version` - SDK version
 
-## Common SQL patterns
+## CLI flags
 
-Find exceptions in a trace:
-```sql
-SELECT span_name, exception_type, exception_message, exception_stacktrace
-FROM records
-WHERE trace_id = '<traceId>' AND is_exception = true
-```
-
-Find slow spans:
-```sql
-SELECT span_name, duration, message
-FROM records
-WHERE trace_id = '<traceId>' AND duration > 1.0
-ORDER BY duration DESC
-```
-
-Trace timeline:
-```sql
-SELECT span_name, start_timestamp, end_timestamp, duration, kind
-FROM records
-WHERE trace_id = '<traceId>'
-ORDER BY start_timestamp
-```
-
-Top spans by count:
-```sql
-SELECT span_name, count(*) as cnt
-FROM records
-GROUP BY span_name
-ORDER BY cnt DESC
-LIMIT 10
-```
-
-HTTP errors:
-```sql
-SELECT span_name, http_response_status_code, url_path, message
-FROM records
-WHERE trace_id = '<traceId>' AND http_response_status_code >= 400
-```
-
-## CLI flags reference
-
-- `--compact`, `-c` - Compact single-line JSON output
-- `--verbose`, `-v` - Show HTTP request/response details
-- `--env`, `-e` - Environment profile name
-- `--fields`, `-f` - Comma-separated fields to select
-- `--sql` - Raw SQL query (mutually exclusive with traceId)
+- `<traceId | URL>` - Fetch: stream to SQLite (cache path or `--save`), print peek with `db`
+- `--db FILE` - Query local SQLite (`--sql` or `--peek`; no token)
+- `--sql` - Raw SQL (API without `--db`, local with `--db`)
+- `--save FILE` - Override the SQLite path for a fetch
+- `-f, --fields` - Columns to save (default all)
+- `-e, --env` - Profile (auto-picked from URL org/project; `-e` wins)
+- `-c, --compact` - One-line JSON
+- `-v, --verbose` - HTTP debug
 - `--token` - Override read token
-
-## Investigation workflow
-
-1. Start by fetching the full trace to understand its shape
-2. If the trace is large, narrow down with `-f` to key fields: `span_name,duration,is_exception,message`
-3. Look for exceptions: filter with `--sql` using `is_exception = true`
-4. Check for slow spans: filter with `--sql` using `duration > N`
-5. Examine specific spans in detail using their `span_id`
-6. Use compact mode (`-c`) with `jq` for programmatic analysis
